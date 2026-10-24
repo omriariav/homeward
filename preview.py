@@ -123,7 +123,7 @@ def render(artifact, columns=100):
                 paragraph('- ' + entry)
     lines.extend(['', 'Icon order preview only; widget dimensions and free-position geometry are not simulated.',
                   'Read-only review. Nothing applied. Revise the draft if needed.',
-                  'The integrated apply flow is not implemented; this preview does not authorize device changes.'])
+                  'This Python preview does not authorize device changes; the Go terminal workflow has a separate guarded Apply.'])
     return '\n'.join(lines) + '\n'
 
 
