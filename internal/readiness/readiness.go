@@ -34,9 +34,10 @@ type Row struct {
 	Detail string `json:"detail"`
 }
 type Report struct {
-	Rows      []Row  `json:"rows"`
-	Checked   bool   `json:"checked"`
-	CheckedAt string `json:"checked_at,omitempty"`
+	Rows             []Row  `json:"rows"`
+	Checked          bool   `json:"checked"`
+	CheckedAt        string `json:"checked_at,omitempty"`
+	IdentityMismatch bool   `json:"identity_mismatch,omitempty"`
 }
 
 func (r Report) Find(key string) Row {
@@ -164,6 +165,7 @@ func (c Checker) Check(ctx context.Context, config Config) (Report, error) {
 		return report, fmt.Errorf("phone identity read failed: %w", err)
 	}
 	if err = matchingIdentity(raw, config); err != nil {
+		report.IdentityMismatch = errors.Is(err, errIdentityMismatch)
 		report.set("identity", NeedsSetup, "The requested ECID/UDID pairing was not verified. Check both identifiers before continuing.")
 		report.set("app_placement", NeedsSetup, "Verify the live phone's ECID/UDID pairing before app placement. Local planning remains available.")
 		return report, err
@@ -205,6 +207,9 @@ func (c Checker) Check(ctx context.Context, config Config) (Report, error) {
 	report.set("app_placement", Unverified, "Configurator, matching read access and unlocked state were checked. Placement itself was not exercised; supported preferences, a complete proposal and final preflight are still required.")
 	return report, nil
 }
+
+var errIdentityMismatch = errors.New("ECID and UDID do not identify the same verified phone")
+
 func matchingIdentity(raw []byte, config Config) error {
 	var response struct {
 		Output map[string]json.RawMessage `json:"Output"`
@@ -224,7 +229,10 @@ func matchingIdentity(raw []byte, config Config) error {
 			var value struct {
 				UDID string `json:"UDID"`
 			}
-			if json.Unmarshal(data, &value) == nil && value.UDID == config.UDID {
+			if json.Unmarshal(data, &value) == nil && value.UDID != "" {
+				if value.UDID != config.UDID {
+					return errIdentityMismatch
+				}
 				matched = true
 			}
 		}

@@ -15,6 +15,7 @@ import (
 	"github.com/omriariav/homeward/internal/readiness"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/omriariav/homeward/internal/core"
 	"github.com/omriariav/homeward/internal/device"
@@ -290,6 +291,8 @@ func (a *App) Capture(ctx context.Context) error {
 			snapshot, e = a.Device.Capture(work)
 			return e
 		})
+		observation := readiness.ObserveCapture(a.ReadinessChecker.Inspect(a.readinessConfig()), a.readinessConfig(), snapshot.Identity, err, time.Now())
+		a.Readiness = &observation
 		if err != nil {
 			return err
 		}
@@ -813,6 +816,8 @@ func (a *App) Run(ctx context.Context) error {
 	if a.Snapshot != nil {
 		start = "Layout loaded. Start with 3 (context), 4 (preferences), then 5/6. In demo, menu 1 resets the synthetic sample."
 	}
+	status := a.PhoneSummary(time.Now())
+	a.UI.Print("Phone: " + status.Connection + "\nEligibility: " + status.Eligibility + " — " + status.EligibilityReason)
 	a.UI.Print("HOMEWARD — interactive terminal organizer\n" + mode + "\nPrivate session evidence: " + a.Directory + "\n" + start + " /quit or Ctrl-D exits.")
 	for {
 		if err := ctx.Err(); err != nil {

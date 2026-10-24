@@ -6,7 +6,7 @@ priorities, answer a short interview, review a curated shortlist, revise it, and
 explicitly confirm Apply. The Go app has no Python runtime dependency and uses
 only the Go standard library. The Apple device runner uses Swift and XCTest.
 
-On an interactive terminal, Homeward opens an original ASCII house/phone illustration
+On an interactive terminal, Homeward opens an original smiling-house ASCII mascot
 and a **Wizard / Custom** chooser. Both modes share the same form, app pickers and
 browsable proposal. It works without AI and can
 exercise the entire workflow using synthetic data. A plain line-oriented interface
@@ -54,6 +54,28 @@ mode chooser from Custom. The plain fallback retains the Custom line interface.
    alignment and explicitly accept the widget/reflow limitation in preferences.
    Read the final disclosure, then freshly type the displayed `APPLY <fingerprint>`.
    Anything else cancels. Nothing reaches a phone in demo mode.
+
+The mode chooser, Custom dashboard and Wizard keep two separate status lines visible.
+**Phone** describes the last connection observation; **Eligibility** describes the
+current requirements for automatic placement. Press **p** to explicitly check the
+phone or **r** for readiness details. Nothing checks the phone on startup or resume.
+
+| Status | Meaning |
+| --- | --- |
+| Demo / no phone configured / saved phone read-only | Local planning; no physical connection is established. |
+| Not checked | No current phone observation. |
+| Connected / connected, locked | Identity was read at the displayed age; a locked phone needs unlocking and another check. |
+| Read failed / identity not verified / identity mismatch | The latest check could not establish a usable matched connection. |
+| Stale | The observation is at least two minutes old, or its time is unknown; check again. |
+| Planning only / needs setup | No live target is enabled, or a known prerequisite needs attention. |
+| Unverified / blocked | Automation is not proven, or the current layout/preferences require manual handling. |
+
+Connection is a dated observation, **not continuous monitoring**. A successful
+layout capture proves read access, not unlocked state or XCTest execution. Runner
+files alone never establish eligibility. “Ready” requires every relevant prerequisite
+to be established; the current read-only check cannot prove XCTest runtime readiness.
+Creating and approving a proposal are separate requirements, so “no proposal yet”
+does not make the phone ineligible.
 
 The dashboard explains when Apply is unavailable and opens its details. Revision
 invalidates the previous review. Jumping over long exclusions or entering a section

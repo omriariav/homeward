@@ -30,6 +30,8 @@ An assigned implementation agent may perform its own edits and validation.
 - Readiness distinguishes local planning from device execution. Identity/lock
   reads verify only those facts; runner presence cannot prove signing, trust,
   Developer Mode or UI Automation. Automatic widget movement remains unsupported.
+  Connection and eligibility summaries are separate, dated observations; stale
+  observations must not claim current connection. Only explicit actions check phones.
 - Keep terminal styling separate from untrusted labels/model text, preserve
   NO_COLOR, and always restore terminal mode/cursor. Sensitive prompts need fresh
   typed consent after disclosure; buffered navigation must not authorize actions.

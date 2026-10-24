@@ -16,6 +16,7 @@ func (s *screen) readiness() error {
 	if s.app.Readiness != nil {
 		report = *s.app.Readiness
 	}
+	s.app.Readiness = &report
 	selected := 0
 	for {
 		mode := "Physical phone readiness is separate from local planning."
@@ -86,39 +87,31 @@ func (s *screen) readiness() error {
 				return err
 			}
 		}
-		if isRune(k, 'c') {
-			if s.app.Options.Device == "" || s.app.Options.Demo {
-				if _, err = s.viewer("No physical check", "No live phone is configured. Wizard and local proposals work offline. Relaunch with explicit --device and --ecid to enable read-only phone checks."); err != nil {
-					return err
-				}
-				continue
-			}
-			s.title = "Read-only phone check"
-			s.history = []string{"This checks tool availability, the configured ECID/UDID pairing and lock state. It reads the phone but does not place apps, launch XCTest or prove Developer Mode / UI Automation works."}
-			answer, err := s.ask("Read the configured phone now? [y/N] ")
-			if err == errBack {
-				continue
-			}
-			if err != nil {
+
+		if isRune(k, 'c') || isRune(k, 'p') {
+			if err = s.checkPhone(); err != nil {
 				return err
 			}
-			if !yes(answer) {
-				continue
-			}
-			err = s.app.UI.Work(s.ctx, "Reading identity and lock state", func(ctx context.Context) error {
-				var e error
-				report, e = s.app.ReadinessChecker.Check(ctx, s.app.readinessConfig())
-				return e
-			})
-			s.app.Readiness = &report
-			if _, saveErr := s.app.save("readiness", report); saveErr != nil {
-				return saveErr
-			}
-			if err != nil {
-				if _, e := s.viewer("Readiness check stopped", fmt.Sprintf("%v\n\nThe report shows only what was established. No mutation was attempted.", err)); e != nil {
-					return e
-				}
+			if s.app.Readiness != nil {
+				report = *s.app.Readiness
 			}
 		}
 	}
+}
+func (s *screen) performPhoneCheck() error {
+	var report readiness.Report
+	err := s.app.UI.Work(s.ctx, "Reading identity and lock state", func(ctx context.Context) error {
+		var e error
+		report, e = s.app.ReadinessChecker.Check(ctx, s.app.readinessConfig())
+		return e
+	})
+	s.app.Readiness = &report
+	if _, saveErr := s.app.save("readiness", report); saveErr != nil {
+		return saveErr
+	}
+	if err != nil {
+		_, viewErr := s.viewer("Phone check stopped", fmt.Sprintf("%v\n\nThe summary shows only what was established. No mutation was attempted.", err))
+		return viewErr
+	}
+	return nil
 }

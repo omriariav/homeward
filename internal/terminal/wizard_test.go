@@ -123,7 +123,11 @@ func TestOriginalArtLeavesChoicesVisibleAtSupportedSizes(t *testing.T) {
 		if !errors.Is(err, errQuit) {
 			t.Fatal(err)
 		}
-		for _, text := range []string{"/\\", "Wizard", "Custom", "Session / resume help", "Esc / q quit"} {
+		face := ".-^-."
+		if size[1] < 24 {
+			face = "'(__)'"
+		}
+		for _, text := range []string{face, "Phone:", "Eligibility:", "p Check", "r Details", "Wizard", "Custom", "Session / resume help", "Esc / q quit"} {
 			if !strings.Contains(out.String(), text) {
 				t.Fatalf("%v missing %q", size, text)
 			}

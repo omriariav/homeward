@@ -11,14 +11,15 @@ var errModes = errors.New("mode chooser")
 var errCustom = errors.New("custom mode")
 var errWizard = errors.New("wizard mode")
 
-// Original Homeward illustration: a house beside a phone. It is compacted to
+// Original Homeward mascot: a friendly house. It is compacted to
 // leave navigation and controls visible, rather than making a screen scroll.
 func homewardArt(width, height int) []screenLine {
-	art := []string{"      /\\       .------.", "     /  \\      | :  : |", "    /____\\     | :  : |", "    | [] |     |______|", "    |____|       (__)  "}
+	// A friendly little house with welcoming arms, drawn for Homeward.
+	art := []string{"        .-^-.", "      .'     '.", "     /_________\\", "   _ |  o   o  | _", "  ( \\|    ^    |/ )", "   \\ |  \\___/  | /", "     '---------'"}
 	if height < 24 {
-		art = []string{"   /\\    .----.", "  /__\\   | :: |", "  |__|   '----'"}
+		art = []string{"       /\\", "     /____\\", "     |o  o|", "     '(__)'"}
 	}
-	indent := strings.Repeat(" ", max(0, (width-26)/2))
+	indent := strings.Repeat(" ", max(0, (width-22)/2))
 	lines := []screenLine{}
 	for _, text := range art {
 		lines = append(lines, accent(indent+text))
@@ -87,6 +88,18 @@ func (s *screen) modeChooser() (string, error) {
 			return "", errQuit
 		}
 		if !fits {
+			continue
+		}
+		if isRune(k, 'p') {
+			if err = s.checkPhone(); err != nil {
+				return "", err
+			}
+			continue
+		}
+		if isRune(k, 'r') {
+			if err = s.readiness(); err != nil {
+				return "", err
+			}
 			continue
 		}
 		if down(k) {
@@ -303,6 +316,12 @@ func (s *screen) wizard() error {
 			continue
 		}
 		if !fits {
+			continue
+		}
+		if isRune(k, 'p') {
+			if err = s.checkPhone(); err != nil {
+				return err
+			}
 			continue
 		}
 		if isRune(k, 'c') {

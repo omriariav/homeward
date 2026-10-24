@@ -172,6 +172,11 @@ func (s *screen) paint(title, subtitle string, body []screenLine, footer string)
 		mode = "PHONE"
 	}
 	rows := []screenLine{accent("HOMEWARD  /  " + mode), dim("A home screen with room for what matters."), line(""), accent(title), dim(subtitle), line("")}
+	if title == "Choose your mode" || strings.HasPrefix(title, "Custom ·") || strings.HasPrefix(title, "Wizard ") {
+		status := s.phoneStatusLines()
+		rows[1] = status[0]
+		rows[2] = status[1]
+	}
 	if !fits {
 		rows = []screenLine{accent("HOMEWARD"), line(""), line("A little more room, please."), dim("Resize to at least 56 × 20."), dim("Or relaunch with --plain.")}
 		footer = "q quit · Esc back"
@@ -320,6 +325,12 @@ func (s *screen) dashboard() error {
 		}
 		if up(k) {
 			selected = (selected + len(labels) - 1) % len(labels)
+			continue
+		}
+		if isRune(k, 'p') {
+			if err = s.checkPhone(); err != nil {
+				return err
+			}
 			continue
 		}
 		if isRune(k, 'w') {
