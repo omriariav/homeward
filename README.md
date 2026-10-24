@@ -1,13 +1,15 @@
 # Homeward
 
 Homeward is an experimental iPhone Home Screen organizer with a **Go executable**
-and an interactive terminal menu. Import or inspect a layout, describe your
+and a keyboard-driven terminal interface. Import or inspect a layout, describe your
 priorities, answer a short interview, review a curated shortlist, revise it, and
 explicitly confirm Apply. The Go app has no Python runtime dependency and uses
 only the Go standard library. The Apple device runner uses Swift and XCTest.
 
-The interface is a numbered, line-oriented terminal menu, not a full-screen TUI.
-It works without AI and can exercise the entire workflow using synthetic data.
+On an interactive terminal, Homeward opens a full-screen dashboard with highlighted
+navigation, app pickers and a browsable proposal. It works without AI and can
+exercise the entire workflow using synthetic data. A plain line-oriented interface
+remains available for scripts and limited terminals.
 
 ## Build and try it
 
@@ -21,23 +23,52 @@ go build -o .build/bin/homeward ./cmd/homeward
 ```
 
 The demo never invokes a phone or external AI. A synthetic layout is already
-loaded; menu **1** resets it. Try this sequence:
+loaded. Use **↑/↓** or **j/k** to move, **Enter** to open, and **1–8** as action
+shortcuts. **Esc** goes back; **q** exits the dashboard. **?** shows session details
+and the local evidence directory.
 
-1. **3 Context** — describe work, interests and priorities, such as “Work mail,
-   calendar and books; less prominent social apps.”
-2. **4 Preferences** — set a page budget, optional must-keep item IDs and Dock
-   choices. Menu **2** lists the IDs. Enter keeps the current value; `none` clears
-   a list. For a simulated Apply, select `standard` alignment and explicitly accept
-   the widget/reflow limitation. The default `preserve` preference blocks Apply.
-3. **5 Interview** — answer focused questions or press Enter to explicitly skip.
-4. **6 Generate** — review Dock, four-column page order, moves, exclusions and
-   limitations. Enter advances through a long preview; `q` stops reading it.
-5. **8 Apply** — type the displayed `APPLY <fingerprint>` exactly to simulate
-   staging, trailing-page cleanup and final verification. Nothing reaches a phone.
+1. **Your context** — describe priorities, such as “Work mail, calendar and books;
+   less prominent social apps.” Text fields accept Unicode; Enter submits,
+   Ctrl-U clears, and Escape cancels.
+2. **Layout preferences** — choose a page budget, then select must-keeps and Dock
+   apps by their names. **Space** toggles an app; **/** searches; Enter saves.
+   In the Dock picker, **[ / ]** moves a selected app earlier/later and **p** keeps
+   the current Dock order. IDs are available only in optional app details.
+3. **Interview** — answer focused questions or press Enter to explicitly skip.
+4. **Create proposal** — browse the overview, Dock, four-column phone pages,
+   changes, exclusions and notes. **←/→** changes sections; ↑/↓ or Page Up/Down
+   scrolls. Enter moves to the next unread portion and finishes only after every
+   line has been displayed. Escape leaves the proposal unreviewed.
+5. **Apply reviewed proposal** — for the simulation, first select `standard`
+   alignment and explicitly accept the widget/reflow limitation in preferences.
+   Read the final disclosure, then freshly type the displayed `APPLY <fingerprint>`.
+   Anything else cancels. Nothing reaches a phone in demo mode.
 
-Revision invalidates the previous review. Partial viewing does not authorize
-Apply. Any other confirmation text cancels; `/quit`, Ctrl-D or Ctrl-C stops work.
-Use `--no-pager` to print a complete preview without page prompts.
+The dashboard explains when Apply is unavailable and opens its details. Revision
+invalidates the previous review. Jumping over long exclusions or entering a section
+without scrolling through it cannot complete review. Resizing to a different width
+resets review coverage conservatively. Typed consent and Apply prompts discard
+queued navigation/paste input, so keys from the previous screen cannot confirm them.
+
+Long AI/device operations show elapsed time and an activity indicator, without
+invented progress percentages. Escape or Ctrl-C cancels the operation and waits
+for it to stop; outside an operation, Ctrl-C or Ctrl-D exits. Cursor visibility and
+terminal mode are restored on exit, cancellation and errors.
+
+The full-screen backend targets macOS, with native Linux amd64/arm64 support.
+It uses only standard-library terminal system calls. `NO_COLOR=1` removes colors
+while retaining selection markers. `TERM=dumb`, non-TTY input/output and unsupported
+platforms use the plain interface. Small windows show a resize hint instead of
+clipped controls; use at least **56 columns × 20 rows**. To explicitly use plain mode:
+
+```sh
+.build/bin/homeward tui --demo --plain
+.build/bin/homeward tui --demo --no-pager   # plain, unpaginated previews
+```
+
+The visual hierarchy and keyboard-navigation direction were inspired by
+[Mole](https://github.com/tw93/Mole). Homeward's interface is independently
+implemented; no Mole code, assets or branding are incorporated.
 
 ## Saved layouts and local planning
 
@@ -78,7 +109,7 @@ interview command.
 
 ## Optional external AI
 
-In the terminal, choose `ai` for an interview or a plan. Each request independently
+Choose `ai` in an interview or planning text prompt. Each request independently
 discloses the provider, model and data being sent, then asks permission with **No**
 as the default. Consent for questions does not authorize the planning request.
 Refusal disables external AI for the rest of that session; local planning remains
@@ -190,7 +221,10 @@ python3 -m unittest discover -s tests -v
 ```
 
 Go tests use synthetic data and injected subprocess/device adapters, including a
-complete menu-to-Apply simulation. They do not contact a phone or AI service.
+complete menu-to-Apply simulation. Screen tests cover navigation, UTF-8, exact
+review coverage, queued-consent rejection, resize, output errors and terminal
+restoration. Native macOS PTY tests exercise keys and complete screen exit paths.
+They do not contact a phone or AI service.
 Simulator compilation does not establish physical-device behavior.
 
 The original standard-library Python prototype remains available as reference:

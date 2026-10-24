@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHelpAndInvalidLiveTargetNeverNeedTools(t *testing.T) {
@@ -60,5 +61,59 @@ func TestAIRefusalOnCLIDoesNotCreateDraft(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Data sent") {
 		t.Fatal("missing disclosure")
+	}
+}
+
+func TestExplicitPlainModeKeepsScriptedInterface(t *testing.T) {
+	var output bytes.Buffer
+	err := run(context.Background(), []string{"tui", "--demo", "--plain", "--output-dir", t.TempDir()}, strings.NewReader("0\n"), &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "\x1b") || !strings.Contains(output.String(), "Homeward >") {
+		t.Fatal(output.String())
+	}
+}
+
+func TestCanonicalCancellationUnblocksInputAndJoinsWatcher(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := closeCanonicalInputOnCancel(ctx, reader)
+	done := make(chan error, 1)
+	go func() { var b [1]byte; _, err := reader.Read(b[:]); done <- err }()
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled read succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canonical read stayed blocked")
+	}
+	stop()
+}
+func TestCanonicalWatcherDoesNotCloseInputAfterNormalReturn(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := closeCanonicalInputOnCancel(ctx, reader)
+	stop()
+	cancel()
+	if _, err = writer.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	var b [1]byte
+	if _, err = reader.Read(b[:]); err != nil || b[0] != 'x' {
+		t.Fatal("completed watcher closed input", err)
 	}
 }

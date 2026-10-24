@@ -23,12 +23,33 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	go func() { <-ctx.Done(); _ = os.Stdin.Close() }()
 	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", terminal.Safe(err.Error()))
 		os.Exit(1)
 	}
 }
+
+// Canonical reads can block until a newline. Install this watcher only after TTY
+// detection and raw-mode setup have been ruled out: File.Close racing File.Fd is
+// unsafe. Raw mode instead polls context on its separately owned descriptor.
+func closeCanonicalInputOnCancel(ctx context.Context, input io.Reader) func() {
+	file, ok := input.(*os.File)
+	if !ok {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		select {
+		case <-ctx.Done():
+			_ = file.Close()
+		case <-stop:
+		}
+	}()
+	return func() { close(stop); <-finished }
+}
+
 func rootDir() string {
 	cwd, _ := os.Getwd()
 	if _, err := os.Stat(filepath.Join(cwd, "runner", "HomeScreenPOC.xcodeproj")); err == nil {
@@ -79,7 +100,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		f.StringVar(&options.Model, "model", "", "optional provider model override")
 		f.BoolVar(&options.Demo, "demo", false, "synthetic workflow; disables all phone and AI commands")
 		f.BoolVar(&options.NoAI, "no-ai", false, "local interview and planning only")
-		noPager := f.Bool("no-pager", false, "print full previews without page prompts")
+		noPager := f.Bool("no-pager", false, "plain mode; print previews without page prompts")
+		plain := f.Bool("plain", false, "use the line-oriented interface, without raw mode or screen redraws")
 		if err := f.Parse(args); err != nil {
 			return flagError(err)
 		}
@@ -91,6 +113,26 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if err != nil {
 			return err
 		}
+		if !*plain && !*noPager && os.Getenv("TERM") != "dumb" {
+			inputFile, inputOK := in.(*os.File)
+			outputFile, outputOK := out.(*os.File)
+			if inputOK && outputOK && terminal.IsTerminal(inputFile) && terminal.IsTerminal(outputFile) {
+				screen, err := terminal.OpenScreen(inputFile, outputFile)
+				if err != nil {
+					return fmt.Errorf("open terminal: %w (use --plain to continue)", err)
+				}
+				return func() (err error) {
+					defer func() {
+						if closeErr := screen.Close(); closeErr != nil {
+							err = errors.Join(err, fmt.Errorf("restore terminal: %w", closeErr))
+						}
+					}()
+					return terminal.RunScreen(ctx, app, screen, out, os.Getenv("NO_COLOR") == "")
+				}()
+			}
+		}
+		stopInput := closeCanonicalInputOnCancel(ctx, in)
+		defer stopInput()
 		return app.Run(ctx)
 	case "preview":
 		f := flags("homeward preview DRAFT", out)
@@ -227,7 +269,11 @@ func plan(ctx context.Context, args []string, in io.Reader, out io.Writer) error
 		ui.Print(terminal.Disclosure(*provider, *model, state))
 		allow := *consented
 		if !allow {
-			answer, err := ui.Ask("Send this information to the selected AI service? [y/N] ")
+			answer, err := func() (string, error) {
+				stopInput := closeCanonicalInputOnCancel(ctx, in)
+				defer stopInput()
+				return ui.Ask("Send this information to the selected AI service? [y/N] ")
+			}()
 			if err != nil {
 				return errors.New("explicit AI consent required; nothing sent")
 			}

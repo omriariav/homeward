@@ -18,9 +18,14 @@ An assigned implementation agent may perform its own edits and validation.
 
 ## Product boundaries
 
-- The Go app provides an interactive numbered terminal menu, not a full-screen TUI.
-  It includes local/AI interview and planning, paged review, revision, synthetic
-  Apply and a guarded live executor. The Python prototype remains available.
+- The Go app provides a full-screen keyboard-driven TUI on supported terminals,
+  with plain/non-TTY fallback. It includes local/AI interview and planning,
+  label-based app pickers, complete-section review, revision, synthetic Apply and
+  a guarded live executor. The Python prototype remains available.
+- Keep terminal styling separate from untrusted labels/model text, preserve
+  NO_COLOR, and always restore terminal mode/cursor. Sensitive prompts need fresh
+  typed consent after disclosure; buffered navigation must not authorize actions.
+  Proposal review must include every visible line, including scrolling sections.
 - Default to a relevant shortlist, no folders, independent consent for each AI
   request, and exact reviewed-plan confirmation. Edits invalidate confirmation.
 - Bottom alignment, preserved free geometry and manual widget reservation are

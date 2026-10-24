@@ -1,4 +1,4 @@
-// Package terminal provides a dependency-free, line-oriented terminal interface.
+// Package terminal provides dependency-free plain and full-screen interfaces.
 package terminal
 
 import (
@@ -23,9 +23,12 @@ type Options struct {
 	Demo, NoAI                                                                bool
 }
 type Terminal struct {
-	Read     func(string) (string, error)
-	Out      io.Writer
-	Paginate bool
+	Read        func(string) (string, error)
+	Out         io.Writer
+	Paginate    bool
+	PrintScreen func(string)
+	ShowScreen  func(string) (bool, error)
+	WorkScreen  func(context.Context, string, func(context.Context) error) error
 }
 
 func NewTerminal(input io.Reader, output io.Writer, paginate bool) *Terminal {
@@ -45,6 +48,10 @@ func NewTerminal(input io.Reader, output io.Writer, paginate bool) *Terminal {
 	return t
 }
 func (t *Terminal) Print(text string) {
+	if t.PrintScreen != nil {
+		t.PrintScreen(text)
+		return
+	}
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
 		lines[i] = Safe(line)
@@ -59,6 +66,9 @@ func (t *Terminal) Ask(prompt string) (string, error) {
 	return strings.TrimSpace(value), err
 }
 func (t *Terminal) Show(text string) (bool, error) {
+	if t.ShowScreen != nil {
+		return t.ShowScreen(text)
+	}
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	for start := 0; start < len(lines); start += 22 {
 		end := min(start+22, len(lines))
@@ -74,6 +84,15 @@ func (t *Terminal) Show(text string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// Work is a presentation seam: plain mode stays synchronous; the screen can show
+// cancellable activity without changing the underlying operation or approval.
+func (t *Terminal) Work(ctx context.Context, title string, fn func(context.Context) error) error {
+	if t.WorkScreen != nil {
+		return t.WorkScreen(ctx, title, fn)
+	}
+	return fn(ctx)
 }
 
 type Interview struct {
@@ -225,7 +244,12 @@ func (a *App) Capture(ctx context.Context) error {
 		if !yes(choice) {
 			return nil
 		}
-		snapshot, err := a.Device.Capture(ctx)
+		var snapshot device.Snapshot
+		err = a.UI.Work(ctx, "Reading the phone layout and app inventory", func(work context.Context) error {
+			var e error
+			snapshot, e = a.Device.Capture(work)
+			return e
+		})
 		if err != nil {
 			return err
 		}
@@ -476,7 +500,12 @@ func (a *App) Questionnaire(ctx context.Context) error {
 		if err != nil || !allowed {
 			return err
 		}
-		result, err := a.AI.Interview(ctx, core.AIRequest{Provider: a.Options.Provider, Model: a.model(), Effort: "medium", Input: a.input(state), Consent: true}, 4)
+		var result core.Questionnaire
+		err = a.UI.Work(ctx, "Preparing your interview", func(work context.Context) error {
+			var e error
+			result, e = a.AI.Interview(work, core.AIRequest{Provider: a.Options.Provider, Model: a.model(), Effort: "medium", Input: a.input(state), Consent: true}, 4)
+			return e
+		})
 		if err != nil {
 			return err
 		}
@@ -554,7 +583,11 @@ func (a *App) Generate(ctx context.Context) error {
 		if err != nil || !allowed {
 			return err
 		}
-		plan, err = a.AI.Plan(ctx, core.AIRequest{Provider: a.Options.Provider, Model: a.model(), Effort: "medium", Input: input, Consent: true})
+		err = a.UI.Work(ctx, "Creating a proposal", func(work context.Context) error {
+			var e error
+			plan, e = a.AI.Plan(work, core.AIRequest{Provider: a.Options.Provider, Model: a.model(), Effort: "medium", Input: input, Consent: true})
+			return e
+		})
 		if err != nil {
 			return err
 		}
@@ -663,7 +696,12 @@ func (a *App) Apply(ctx context.Context) error {
 	}
 	a.serial++
 	directory := filepath.Join(a.Directory, fmt.Sprintf("%03d-apply", a.serial))
-	result, err := organizer.Execute(ctx, *a.Review, approval, a.Device, directory)
+	var result []any
+	err = a.UI.Work(ctx, "Applying and verifying the reviewed layout", func(work context.Context) error {
+		var e error
+		result, e = organizer.Execute(work, *a.Review, approval, a.Device, directory)
+		return e
+	})
 	if err != nil {
 		a.Snapshot = nil
 		a.invalidate()
