@@ -6,8 +6,9 @@ priorities, answer a short interview, review a curated shortlist, revise it, and
 explicitly confirm Apply. The Go app has no Python runtime dependency and uses
 only the Go standard library. The Apple device runner uses Swift and XCTest.
 
-On an interactive terminal, Homeward opens a full-screen dashboard with highlighted
-navigation, app pickers and a browsable proposal. It works without AI and can
+On an interactive terminal, Homeward opens an original ASCII house/phone illustration
+and a **Wizard / Custom** chooser. Both modes share the same form, app pickers and
+browsable proposal. It works without AI and can
 exercise the entire workflow using synthetic data. A plain line-oriented interface
 remains available for scripts and limited terminals.
 
@@ -23,13 +24,23 @@ go build -o .build/bin/homeward ./cmd/homeward
 ```
 
 The demo never invokes a phone or external AI. A synthetic layout is already
-loaded. Use **↑/↓** or **j/k** to move, **Enter** to open, and **1–8** as action
-shortcuts. **Esc** goes back; **q** exits the dashboard. **?** shows session details
-and the local evidence directory.
+loaded. Use **↑/↓** or **j/k** to move and **Enter** to open. Choose **Wizard** for a
+guided workflow, or **Custom** for the existing eight-action dashboard. The artwork
+compacts on smaller screens so navigation stays visible; it also appears during
+long operations where space permits.
+
+The Wizard guides **Source → Context → Preferences → optional Interview → CREATE
+PROPOSAL → complete Review → optional Apply**. Next never starts Apply. Its final
+primary action finishes without applying; actual Apply remains a separate explicit
+choice. **Esc** goes back a step and **c** opens Custom without clearing your form.
+In Custom, **w** returns to your Wizard step, **r** opens readiness, **?** shows
+session details, and **1–8** activate actions. **q** exits; Escape returns to the
+mode chooser from Custom. The plain fallback retains the Custom line interface.
 
 1. **Your context** — describe priorities, such as “Work mail, calendar and books;
    less prominent social apps.” Text fields accept Unicode; Enter submits,
-   Ctrl-U clears, and Escape cancels.
+   Ctrl-U clears, and Escape keeps an unsubmitted draft. Reopening a field restores
+   that draft; it does not become context or an interview answer until submitted.
 2. **Layout preferences** — choose a page budget, then select must-keeps and Dock
    apps by their names. **Space** toggles an app; **/** searches; Enter saves.
    In the Dock picker, **[ / ]** moves a selected app earlier/later and **p** keeps
@@ -100,12 +111,32 @@ semantic AI model or usage analysis. It honors explicit must-keeps, Dock order a
 page limits, and explains every exclusion. Without useful matches it labels its
 small original-order fallback for review. It never claims an app is unused.
 
-Each session writes private, separate capture, context, answer, preference and
-draft files under ignored `artifacts/tui/session-*`. Draft paths are never
-silently overwritten. These files can contain personal information; keep them
-local. Saved Go interview answers are evidence for that session; Go interview
-resume/import is not implemented yet. The Python reference retains its resumable
-interview command.
+Each session writes private capture, context, answer, preference and draft files
+under ignored `artifacts/tui/session-*`, plus an atomically updated `session.json`.
+Draft evidence is never overwritten. These files can contain personal information;
+keep them local. Both modes retain submitted values and actual interview answers.
+Context changes clear the dependent interview/proposal; changed source captures
+also clear app selections. An unchanged recapture preserves the form but clears
+review approval. These invalidations are explained in the interface.
+
+Resume from a session directory or its `session.json`:
+
+```sh
+.build/bin/homeward tui --resume artifacts/tui/session-EXAMPLE
+# Explicitly enable the same physical target, then recapture it:
+.build/bin/homeward tui --resume artifacts/tui/session-EXAMPLE \
+  --device YOUR_UDID --ecid YOUR_ECID --no-ai
+```
+
+Resume creates a new evidence directory and preserves context, preferences, actual
+answers, escaped text drafts, proposal and Wizard position. It does **not** restore
+review approval, AI consent, readiness results or the widget/reflow acknowledgement.
+A restored draft must be reviewed again; automatic Apply needs a fresh reflow
+acknowledgement and regeneration. AI refusal remains respected. A saved phone
+session opens **read-only** unless matching device identifiers are explicitly
+provided. With those identifiers, its snapshot remains stale until recaptured.
+Tool paths and checkout roots always come from the current invocation, never the
+session file. Contradictory saved form/proposal policies are rejected.
 
 ## Optional external AI
 
@@ -129,6 +160,26 @@ provider fallback. Responses are schema-checked and semantically validated.
 
 Headless callers can pass `--consent-ai` only after obtaining consent to that
 specific disclosure. Saved preview and local planning make no external requests.
+
+## Readiness: planning versus changing the phone
+
+Open **Phone readiness & capabilities** from the mode chooser, press **r** in
+Wizard/Custom, or use the Wizard source step. Static inspection checks local tool
+and runner files without contacting a phone. An explicit **c** check first explains
+and asks permission for read-only identity/lock checks. Demo and local-only sessions
+never perform those reads.
+
+The report distinguishes **Ready**, **Needs setup**, **Not checked**, **Unverified**
+and **Unsupported** for individual prerequisites. A successful identity/lock read
+can establish matched read access and unlocked state at that time. It cannot prove
+app placement or XCTest execution. A runner file alone does not verify signing,
+Developer Mode, trust or UI Automation; page/icon removal stays unverified until
+actually exercised. Reports are snapshots, not continuous monitoring.
+
+**Wizard guided workflow** is available offline. **Widget movement**, bottom
+alignment and reserved space remain unsupported for automatic execution. The
+current proposal, review and geometry/shortcut blockers are shown separately;
+being ready to create a proposal is never a claim that the phone is ready to change.
 
 ## Physical device workflow
 
@@ -221,9 +272,10 @@ python3 -m unittest discover -s tests -v
 ```
 
 Go tests use synthetic data and injected subprocess/device adapters, including a
-complete menu-to-Apply simulation. Screen tests cover navigation, UTF-8, exact
-review coverage, queued-consent rejection, resize, output errors and terminal
-restoration. Native macOS PTY tests exercise keys and complete screen exit paths.
+complete menu-to-Apply simulation. Screen tests cover Wizard back/mode retention,
+no automatic Apply, UTF-8, exact review coverage, queued-consent rejection, resize,
+output errors and terminal restoration. Session tests reject stale policies and
+stored authority; readiness tests use injected read-only responses. Native macOS PTY tests exercise keys and complete screen exit paths.
 They do not contact a phone or AI service.
 Simulator compilation does not establish physical-device behavior.
 

@@ -20,8 +20,16 @@ An assigned implementation agent may perform its own edits and validation.
 
 - The Go app provides a full-screen keyboard-driven TUI on supported terminals,
   with plain/non-TTY fallback. It includes local/AI interview and planning,
-  label-based app pickers, complete-section review, revision, synthetic Apply and
-  a guarded live executor. The Python prototype remains available.
+  Wizard/Custom modes sharing one form, label-based app pickers, complete-section
+  review, revision, synthetic Apply and a guarded live executor. Wizard advancement
+  must never automatically apply. The Python prototype remains available.
+- Session resume restores data, never tool paths, live transport permission,
+  readiness, AI consent or review approval. Saved phone data is read-only without
+  explicitly matched target IDs and requires fresh capture before live Apply.
+  Validate restored proposal/context/preferences/answers linkage.
+- Readiness distinguishes local planning from device execution. Identity/lock
+  reads verify only those facts; runner presence cannot prove signing, trust,
+  Developer Mode or UI Automation. Automatic widget movement remains unsupported.
 - Keep terminal styling separate from untrusted labels/model text, preserve
   NO_COLOR, and always restore terminal mode/cursor. Sensitive prompts need fresh
   typed consent after disclosure; buffered navigation must not authorize actions.

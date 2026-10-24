@@ -62,7 +62,7 @@ func testScreen(t *testing.T) (*screen, *fakeScreen, *bytes.Buffer) {
 
 func TestScreenDashboardContextReviewNeverMutates(t *testing.T) {
 	s, input, out := testScreen(t)
-	initial := append([]Key{runeKey('3')}, typed("Work mail books שלום")...)
+	initial := append([]Key{runeKey('2'), runeKey('3')}, typed("Work mail books שלום")...)
 	initial = append(initial, Key{Name: "enter"}, runeKey('6'))
 	steps := 0
 	input.onRead = func() (Key, error) {
@@ -213,7 +213,7 @@ func TestNarrowScreenAndResizeDoNotClipControlsOrCountHiddenContent(t *testing.T
 	if err := runScreen(context.Background(), s.app, input, out, false); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Resize to at least 56 × 20") || !strings.Contains(out.String(), "Make it yours") {
+	if !strings.Contains(out.String(), "Resize to at least 56 × 20") || !strings.Contains(out.String(), "Choose your mode") {
 		t.Fatal(out.String())
 	}
 	ready(t, s.app)

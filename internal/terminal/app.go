@@ -10,6 +10,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+
+	"github.com/omriariav/homeward/internal/readiness"
 	"strconv"
 	"strings"
 
@@ -19,11 +22,12 @@ import (
 )
 
 type Options struct {
-	Root, OutputDir, Layout, Metadata, Device, ECID, Cfgutil, Provider, Model string
-	Demo, NoAI                                                                bool
+	Root, OutputDir, Layout, Metadata, Device, ECID, Cfgutil, Provider, Model, Resume string
+	Demo, NoAI                                                                        bool
 }
 type Terminal struct {
 	Read        func(string) (string, error)
+	InputKey    string
 	Out         io.Writer
 	Paginate    bool
 	PrintScreen func(string)
@@ -104,24 +108,44 @@ type Interview struct {
 }
 
 type App struct {
-	Options     Options
-	UI          *Terminal
-	Device      device.Device
-	AI          core.AIClient
-	Directory   string
-	Snapshot    *device.Snapshot
-	Metadata    core.Metadata
-	Request     string
-	Preferences core.Preferences
-	Interview   *Interview
-	Artifact    *core.Artifact
-	Review      *organizer.Review
-	Reviewed    string
-	RefusedAI   bool
-	serial      int
+	Options          Options
+	UI               *Terminal
+	Device           device.Device
+	AI               core.AIClient
+	Directory        string
+	Snapshot         *device.Snapshot
+	Metadata         core.Metadata
+	Request          string
+	Preferences      core.Preferences
+	Interview        *Interview
+	Artifact         *core.Artifact
+	Review           *organizer.Review
+	Reviewed         string
+	RefusedAI        bool
+	serial           int
+	Mode             string
+	WizardStep       int
+	InterviewSkipped bool
+	FormDrafts       map[string]string
+	NeedsCapture     bool
+	ResumeReadOnly   bool
+	Readiness        *readiness.Report
+	ReadinessChecker readiness.Checker
 }
 
 func New(options Options, ui *Terminal, target device.Device) (*App, error) {
+	var resumed *Session
+	if options.Resume != "" {
+		var err error
+		resumed, err = loadSession(options.Resume)
+		if err != nil {
+			return nil, err
+		}
+		options, err = resumeOptions(options, resumed)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if (options.Device == "") != (options.ECID == "") {
 		return nil, errors.New("live targets require both --device UDID and --ecid ECID; capture verifies their pairing")
 	}
@@ -145,9 +169,15 @@ func New(options Options, ui *Terminal, target device.Device) (*App, error) {
 		return nil, err
 	}
 	app := &App{Options: options, UI: ui, Directory: dir, Device: target, RefusedAI: options.NoAI || options.Demo,
-		Preferences: core.Preferences{MaxPages: 2, Alignment: "preserve"}}
+		Preferences: core.Preferences{MaxPages: 2, Alignment: "preserve"}, FormDrafts: map[string]string{}}
 	if app.Device == nil && options.Device != "" {
 		app.Device = device.NewLive(options.Root, options.Device, options.ECID, dir, options.Cfgutil)
+	}
+	if resumed != nil {
+		if err := app.restore(resumed); err != nil {
+			return nil, err
+		}
+		return app, nil
 	}
 	if options.Metadata != "" {
 		if err := ReadJSON(options.Metadata, &app.Metadata); err != nil {
@@ -169,6 +199,9 @@ func New(options Options, ui *Terminal, target device.Device) (*App, error) {
 		if err := app.Import(layout); err != nil {
 			return nil, err
 		}
+	}
+	if err := app.SaveSession(); err != nil {
+		return nil, err
 	}
 	return app, nil
 }
@@ -193,7 +226,10 @@ func Demo() ([]any, core.Metadata) {
 func (a *App) save(name string, value any) (string, error) {
 	a.serial++
 	path := filepath.Join(a.Directory, fmt.Sprintf("%03d-%s.json", a.serial, name))
-	return path, organizer.SaveJSON(path, value)
+	if err := organizer.SaveJSON(path, value); err != nil {
+		return path, err
+	}
+	return path, a.SaveSession()
 }
 func (a *App) invalidate() { a.Artifact = nil; a.Review = nil; a.Reviewed = "" }
 func (a *App) state() (core.State, error) {
@@ -218,6 +254,10 @@ func (a *App) Import(layout []any) error {
 		}
 	}
 	a.Snapshot = &snapshot
+	a.NeedsCapture = a.Options.Device != ""
+	a.ResumeReadOnly = false
+	a.InterviewSkipped = false
+	a.FormDrafts = map[string]string{}
 	a.Interview = nil
 	a.Preferences.Keep = nil
 	a.Preferences.Dock = nil
@@ -253,7 +293,10 @@ func (a *App) Capture(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		sameSource := a.Snapshot != nil && reflect.DeepEqual(a.Snapshot.Identity, snapshot.Identity) && reflect.DeepEqual(a.Snapshot.Layout, snapshot.Layout) && reflect.DeepEqual(a.Snapshot.AppIDs, snapshot.AppIDs) && reflect.DeepEqual(a.Snapshot.StageIDs, snapshot.StageIDs)
 		a.Snapshot = &snapshot
+		a.NeedsCapture = false
+		a.ResumeReadOnly = false
 		if a.Metadata.Apps == nil {
 			a.Metadata.Apps = map[string]core.AppMetadata{}
 		}
@@ -262,10 +305,25 @@ func (a *App) Capture(ctx context.Context) error {
 				a.Metadata.Apps[key] = core.AppMetadata{Label: label}
 			}
 		}
-		a.Interview = nil
-		a.Preferences.Keep = nil
-		a.Preferences.Dock = nil
-		a.invalidate()
+		if !sameSource {
+			a.Interview = nil
+			a.InterviewSkipped = false
+			a.FormDrafts = map[string]string{}
+			a.Preferences.Keep = nil
+			a.Preferences.Dock = nil
+			a.invalidate()
+			a.UI.Print("The source layout changed: app selections, interview and proposal were cleared. Your context and general preferences remain.")
+		} else {
+			a.Reviewed = ""
+			if a.Artifact != nil {
+				review, e := organizer.NewReview(snapshot, *a.Artifact, a.Preferences)
+				if e != nil {
+					return e
+				}
+				a.Review = &review
+			}
+			a.UI.Print("The captured layout matches. Your form and proposal are retained; review approval was cleared.")
+		}
 		if _, err := a.save("capture", snapshot); err != nil {
 			return err
 		}
@@ -308,13 +366,18 @@ func (a *App) Inventory() error {
 }
 func (a *App) Context() error {
 	a.UI.Print("Current context: " + a.Request)
+	a.UI.InputKey = "context"
+	defer func() { a.UI.InputKey = "" }()
 	text, err := a.UI.Ask("Describe work, interests and the Home Screen you want (Enter keeps current): ")
 	if err != nil {
 		return err
 	}
-	if text != "" {
+	if text != "" && text != a.Request {
 		a.Request = text
 		a.Interview = nil
+		a.InterviewSkipped = false
+		a.FormDrafts = map[string]string{}
+		a.UI.Print("Context updated. Old interview answers and proposal were cleared; preferences remain.")
 		a.invalidate()
 		_, err = a.save("context", map[string]string{"request": text})
 	}
@@ -433,7 +496,7 @@ func (a *App) consent(state core.State) (bool, error) {
 	if !yes(choice) {
 		a.RefusedAI = true
 		a.UI.Print("AI sharing declined. Nothing sent. Local planning remains available.")
-		return false, nil
+		return false, a.SaveSession()
 	}
 	return true, nil
 }
@@ -490,6 +553,9 @@ func (a *App) Questionnaire(ctx context.Context) error {
 	if a.Request == "" {
 		return errors.New("add free-text context first (menu 3)")
 	}
+	if a.Interview != nil && a.Interview.Request == a.Request {
+		return a.collectInterviewAnswers()
+	}
 	mode, err := a.mode("Interview")
 	if err != nil {
 		return err
@@ -523,9 +589,18 @@ func (a *App) Questionnaire(ctx context.Context) error {
 	if _, err = a.save("interview", a.Interview); err != nil {
 		return err
 	}
-	a.UI.Print("Enter skips a question; /quit saves and exits. No skipped answer is inferred.")
+	return a.collectInterviewAnswers()
+}
+func (a *App) collectInterviewAnswers() error {
+	a.InterviewSkipped = false
+	defer func() { a.UI.InputKey = "" }()
+	a.UI.Print("Saved answers are retained. Enter skips an unanswered question; no answer is inferred.")
 	for i := range a.Interview.Questions {
 		q := &a.Interview.Questions[i]
+		if q.Status != "pending" {
+			continue
+		}
+		a.UI.InputKey = "interview:" + q.ID
 		a.UI.Print(q.Question + "\nWhy: " + q.Why)
 		for n, option := range q.Options {
 			a.UI.Print(fmt.Sprintf("%d. %s", n+1, option))
@@ -549,7 +624,7 @@ func (a *App) Questionnaire(ctx context.Context) error {
 				q.Status = "answered"
 				q.Answer = &answer
 			}
-			if _, err = a.save("interview", a.Interview); err != nil {
+			if _, err := a.save("interview", a.Interview); err != nil {
 				return err
 			}
 			break
@@ -557,7 +632,9 @@ func (a *App) Questionnaire(ctx context.Context) error {
 	}
 	return nil
 }
-func (a *App) Generate(ctx context.Context) error {
+func (a *App) Generate(ctx context.Context) error       { return a.generate(ctx, true) }
+func (a *App) CreateProposal(ctx context.Context) error { return a.generate(ctx, false) }
+func (a *App) generate(ctx context.Context, show bool) error {
 	state, err := a.state()
 	if err != nil {
 		return err
@@ -625,7 +702,10 @@ func (a *App) Generate(ctx context.Context) error {
 		return err
 	}
 	a.UI.Print("Saved draft: " + path)
-	return a.View()
+	if show {
+		return a.View()
+	}
+	return nil
 }
 func sameIDs(a, b []string) bool {
 	if len(a) != len(b) {
@@ -672,6 +752,9 @@ func (a *App) View() error {
 	return nil
 }
 func (a *App) Apply(ctx context.Context) error {
+	if problem := a.sessionApplyProblem(); problem != "" {
+		return errors.New(problem)
+	}
 	if a.Review == nil || a.Reviewed != a.Review.Digest() {
 		return errors.New("read the entire current proposal first (menu 7); edits require a new review")
 	}
@@ -717,7 +800,7 @@ func (a *App) Apply(ctx context.Context) error {
 		label = "SIMULATED "
 	}
 	a.UI.Print(label + "VERIFIED: exact icon layout matches the reviewed plan. Widget configurations and free-position geometry were not verified. Evidence: " + directory)
-	return nil
+	return a.SaveSession()
 }
 func (a *App) Run(ctx context.Context) error {
 	mode := "Phone reads, AI requests and Apply require explicit menu actions."

@@ -55,7 +55,7 @@ func runScreen(ctx context.Context, app *App, input screenInput, output io.Write
 	if _, err = fmt.Fprint(output, "\x1b[?1049h\x1b[?25l"); err != nil {
 		return err
 	}
-	err = s.dashboard()
+	err = s.runModes()
 	if errors.Is(err, errQuit) || errors.Is(err, io.EOF) {
 		return nil
 	}
@@ -228,6 +228,9 @@ func (s *screen) applyProblems() []string {
 		return []string{"Create a proposal first."}
 	}
 	problems := organizer.Blockers(*s.app.Review, s.app.Device.CleanupAvailable())
+	if problem := s.app.sessionApplyProblem(); problem != "" {
+		problems = append([]string{problem}, problems...)
+	}
 	if s.app.Reviewed != s.app.Review.Digest() {
 		problems = append([]string{"Read every proposal section and finish the review."}, problems...)
 	}
@@ -257,7 +260,7 @@ func (s *screen) dashboard() error {
 		if contextText == "" {
 			contextText = "Tell us what deserves the fastest access."
 		}
-		proposal := "No proposal yet"
+		proposal := "No proposal yet — CREATE PROPOSAL first"
 		if s.app.Review != nil {
 			p := s.app.Review.Data().Artifact.Plan
 			count := len(p.Dock)
@@ -297,13 +300,16 @@ func (s *screen) dashboard() error {
 				target = "iPhone snapshot"
 			}
 		}
-		fits := s.paint("Make it yours", target+" · "+apps+" · "+ai, body, "↑↓ / j k move  Enter open  1–8  ? details  q quit")
+		fits := s.paint("Custom · Make it yours", target+" · "+apps+" · "+ai, body, "↑↓ Enter  1–8  w Wizard  r readiness  Esc modes")
 		k, err := s.key()
 		if err != nil {
 			return err
 		}
-		if isBack(k) {
+		if isRune(k, 'q') {
 			return nil
+		}
+		if k.Name == "esc" {
+			return errModes
 		}
 		if !fits {
 			continue
@@ -316,8 +322,17 @@ func (s *screen) dashboard() error {
 			selected = (selected + len(labels) - 1) % len(labels)
 			continue
 		}
+		if isRune(k, 'w') {
+			return errWizard
+		}
+		if isRune(k, 'r') {
+			if err = s.readiness(); err != nil {
+				return err
+			}
+			continue
+		}
 		if isRune(k, '?') {
-			_, err = s.viewer("Session details", "Mode: "+target+"\n\nEvidence and saved answers:\n"+s.app.Directory+"\n\nNo phone or AI requests happen at startup. Device status is a saved snapshot, not a live connection indicator.")
+			err = s.sessionDetails()
 			if err != nil {
 				return err
 			}
@@ -355,6 +370,9 @@ func (s *screen) dashboard() error {
 			} else {
 				err = s.app.Apply(s.ctx)
 			}
+		}
+		if saveErr := s.app.SaveSession(); saveErr != nil {
+			return saveErr
 		}
 		if errors.Is(err, errQuit) || errors.Is(err, io.EOF) {
 			return nil
@@ -435,7 +453,8 @@ func (s *screen) ask(prompt string) (string, error) {
 	if err := s.input.FlushInput(); err != nil {
 		return "", err
 	}
-	if strings.Contains(prompt, "Send this information") || strings.HasPrefix(prompt, "Type APPLY ") || strings.Contains(prompt, "Type yes to accept") {
+	sensitive := strings.Contains(prompt, "Send this information") || strings.HasPrefix(prompt, "Type APPLY ") || strings.Contains(prompt, "Type yes to accept") || strings.Contains(prompt, "Read the configured phone now?")
+	if sensitive {
 		complete, err := s.readDisclosure(strings.Join(s.history, "\n\n"))
 		if err != nil {
 			return "", err
@@ -447,7 +466,28 @@ func (s *screen) ask(prompt string) (string, error) {
 			return "", err
 		}
 	}
+	key := s.app.UI.InputKey
+	if key == "" {
+		key = s.title + " | " + prompt
+	}
 	value := []rune{}
+	if !sensitive {
+		if saved, ok := s.app.FormDrafts[key]; ok {
+			value = []rune(saved)
+		} else if key == "context" {
+			value = []rune(s.app.Request)
+		}
+	}
+	persistDraft := func() error {
+		if sensitive {
+			return nil
+		}
+		if s.app.FormDrafts == nil {
+			s.app.FormDrafts = map[string]string{}
+		}
+		s.app.FormDrafts[key] = string(value)
+		return s.app.SaveSession()
+	}
 	historyOffset := -1
 	for {
 		w, _ := s.size()
@@ -475,13 +515,23 @@ func (s *screen) ask(prompt string) (string, error) {
 			_, n := firstRune(inputText)
 			inputText = inputText[n:]
 		}
-		body = append(body, line("› "+inputText+"▏"), dim("Typed input · Enter submits · Escape cancels"))
+		hint := "Enter submits · Escape keeps an unsubmitted draft"
+		if sensitive {
+			hint = "Fresh typed confirmation · Escape cancels"
+		}
+		body = append(body, line("› "+inputText+"▏"), dim(hint))
 		fits := s.paint(s.title, "Your answers are saved locally. Nothing is assumed.", body, "Enter submit   Esc back   Ctrl-U clear   ↑↓ disclosure")
 		k, err := s.key()
 		if err != nil {
+			if saveErr := persistDraft(); saveErr != nil {
+				return "", saveErr
+			}
 			return "", err
 		}
 		if k.Name == "esc" {
+			if err := persistDraft(); err != nil {
+				return "", err
+			}
 			return "", errBack
 		}
 		if !fits {
@@ -492,6 +542,12 @@ func (s *screen) ask(prompt string) (string, error) {
 		}
 		switch k.Name {
 		case "enter":
+			if !sensitive {
+				delete(s.app.FormDrafts, key)
+				if err := s.app.SaveSession(); err != nil {
+					return "", err
+				}
+			}
 			return strings.TrimSpace(string(value)), nil
 		case "backspace":
 			if len(value) > 0 {
@@ -550,7 +606,12 @@ func (s *screen) work(ctx context.Context, title string, fn func(context.Context
 		if cancelled {
 			text = "Cancelling; waiting for the operation to stop…"
 		}
-		s.paint("Working", text, []screenLine{line(""), accent(fmt.Sprintf("%s  %s", frames[int(elapsed/(200*time.Millisecond))%len(frames)], title)), dim(fmt.Sprintf("Elapsed %s · no progress estimate", elapsed.Truncate(time.Second))), line(""), dim("Device operations may leave a partial state when cancelled."), dim("Any failure is recorded with evidence; there is no blind retry.")}, "Esc / Ctrl-C cancel · wait for a safe return")
+		body := []screenLine{line(""), accent(fmt.Sprintf("%s  %s", frames[int(elapsed/(200*time.Millisecond))%len(frames)], title)), dim(fmt.Sprintf("Elapsed %s · no progress estimate", elapsed.Truncate(time.Second))), line(""), dim("Device operations may leave a partial state when cancelled."), dim("Any failure is recorded with evidence; there is no blind retry.")}
+		w, h := s.size()
+		if h >= 24 {
+			body = append(homewardArt(w, h), body...)
+		}
+		s.paint("Working", text, body, "Esc / Ctrl-C cancel · wait for a safe return")
 		// ReadKey has bounded polling; only this goroutine touches terminal input.
 		key, err := s.input.ReadKey(ctx)
 		if err != nil || s.writeErr != nil || key.Name == "esc" || key.Name == "ctrl-c" || key.Name == "eof" || isRune(key, 'q') {
