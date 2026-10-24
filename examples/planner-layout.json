@@ -1,0 +1,9 @@
+[
+  ["com.apple.mobilephone", "net.whatsapp.WhatsApp", "com.google.calendar"],
+  [
+    ["Work", "com.tinyspeck.chatlyio", "com.google.Gmail", "com.okta.mobile"],
+    ["Social", "com.burbn.instagram", "com.apple.MobileSMS"],
+    ["News", "com.ynet-internet.ynet", "com.haaretz.hebrew.iphone"],
+    "com.apple.mobilesafari"
+  ]
+]

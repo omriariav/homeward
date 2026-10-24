@@ -1,0 +1,34 @@
+# Local environments, caches, and generated builds
+.venv/
+.build/
+build/
+DerivedData/
+__pycache__/
+*.py[cod]
+*.xcresult/
+*.xctestrun
+xcuserdata/
+*.xcuserstate
+.DS_Store
+
+# Device evidence, personal layout exports, and working notes
+artifacts/
+local-notes/
+feedback/
+HOME_SCREEN_RESEARCH.md
+home-screen-*.plist
+*.png
+*.jpg
+*.jpeg
+*.heic
+*.HEIC
+*.mov
+*.mp4
+
+# Local credentials and signing material
+.env
+.env.*
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
